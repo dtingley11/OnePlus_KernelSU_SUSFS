@@ -1,5 +1,7 @@
 <div align="center">
 
+For this fork’s **OnePlus Ace 6T / OnePlus 15R** build profile, see [the build guide](docs/SM8845.md). Ace 6T is the default; compilation and firmware compatibility remain unverified for the modified profile.
+
 # 🔥 Wild Kernels for OnePlus (Oppo/Realme)
 
 [![KernelSU-Next](https://img.shields.io/badge/KernelSU_Next-Supported-green)](https://kernelsu-next.github.io/webpage/)
