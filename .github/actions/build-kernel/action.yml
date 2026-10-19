@@ -1,47 +1,37 @@
 name: 'Build OnePlus Kernel with KernelSU Next'
+description: 'Build OnePlus Kernel with KernelSU Next'
 
 inputs:
   op_config_json:
     description: 'JSON string containing full device config'
     required: true
-    type: string
   ksu_type:
     description: 'Select KSU Type'
     required: true
-    type: choice
-    options:
-      - KSUN
-      - KSU
   ksu_branch_or_hash:
     description: 'KSU branch or commit hash (empty = auto-detect by ksu_type)'
     required: false
-    type: string
     default: ""
   susfs_commit_hash_or_branch:
     description: 'SUSFS branch or commit hash (empty = auto-detect by kernel version)'
     required: false
-    type: string
     default: ""
   build_timestamp:
     description: 'Custom kernel build timestamp shown in uname -a (e.g. "Tue Feb 10 10:01:02 UTC 2026"). Leave empty to use the current build time.'
     required: false
-    type: string
     default: ''
   optimize_level:
     description: 'Compiler optimization level (O2 or O3)'
     required: false
-    type: string
     default: O2
   clean:
     description: 'Force clean build without ccache acceleration'
     required: false
-    type: boolean
-    default: false
+    default: 'false'
   debug:
     description: 'Enable dumping debug related artifacts'
     required: false
-    type: boolean
-    default: false
+    default: 'false'
   github_token:
     description: 'GitHub Token'
     required: true
@@ -98,10 +88,10 @@ runs:
         echo "ACTION_REF=$ACTION_REF_VAL" >> $GITHUB_ENV
 
     - name: 📥 Checkout Code
-      uses: actions/checkout@v6
+      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
       with:
-        repository: ${{ env.ACTION_REPO }}
-        ref: ${{ env.ACTION_REF }}
+        repository: ${{ env.ACTION_REPO || github.repository }}
+        ref: ${{ env.ACTION_REF || github.sha }}
         path: action-source
         fetch-depth: 1
 
@@ -259,8 +249,8 @@ runs:
         
         if [[ -z "$lto" ]]; then
           errors+=("Input 'lto' cannot be empty")
-        elif [[ "$lto" != "none" && "$lto" != "thin" && "$lto" != "full" ]]; then
-          errors+=("Input 'lto' contains invalid characters. Allowed: 'thin', 'full' or 'none'. Got: '$lto'")
+        elif [[ "$lto" != "none" && "$lto" != "thin" && "$lto" != "full" && "$lto" != "stock" ]]; then
+          errors+=("Input 'lto' contains invalid characters. Allowed: 'stock', 'thin', 'full' or 'none'. Got: '$lto'")
         fi
         
         if [[ -z "$uname" ]]; then
@@ -323,7 +313,7 @@ runs:
         mkdir -p "$CONFIG"
         echo "CONFIG=$CONFIG" >> "$GITHUB_ENV"
         REPO="/usr/local/bin/repo"
-        if [ ! -x "$REPO" ]; then
+        if [ "${OP_MINIMAL:-false}" != true ] && [ ! -x "$REPO" ]; then
           curl -s https://storage.googleapis.com/git-repo-downloads/repo -o "$REPO"
           chmod +x "$REPO"
         fi
@@ -336,7 +326,7 @@ runs:
         git config --global feature.manyFiles true
         git config --global core.fsmonitor true
         git config --global pack.sparse true
-        git config --global http.sslVerify false
+        git config --global http.sslVerify true
 
     - name: Sync Kernel Source
       id: sync-kernel-source
@@ -467,6 +457,10 @@ runs:
         echo "::group::Detect Clang"
         CLANG_FOUND=false
         CLANG_BIN=""
+        if [ "${OP_MINIMAL:-false}" = true ] && [ ! -x "$CONFIG_FOLDER/$OP_C_COMPILER/clang" ]; then
+          echo "::error::Pinned SM8845 Clang is missing; refusing a compiler fallback"
+          exit 1
+        fi
         
         if [ -n "$OP_ZYC_COMPILER" ]; then
           # Priority 1: User explicitly wants ZyC compiler
@@ -626,6 +620,10 @@ runs:
         fi
         
         [ "$RUSTC_FOUND" = true ] || { echo "::error::No RUST toolchain found"; exit 1; }
+        if [ "${OP_MINIMAL:-false}" = true ] && [ "$BINDGEN_FOUND" != true ]; then
+          echo "::error::Pinned SM8845 bindgen is missing; refusing an unpinned rustup fallback"
+          exit 1
+        fi
         [ "$BINDGEN_FOUND" = true ] || { echo "::warning::No bindgen found"; }
         
         echo "RUSTC_BIN_PATH=$RUSTC_BIN" >> "$GITHUB_ENV"
@@ -648,7 +646,7 @@ runs:
 
     - name: Install bindgen only (no rustc)
       shell: bash
-      if: ${{ env.OP_RUST_BUILD == 'true'  && !env.BINDGEN_BIN_PATH }}
+      if: ${{ env.OP_RUST_BUILD == 'true' && env.OP_MINIMAL != 'true' && !env.BINDGEN_BIN_PATH }}
       run: |
         # Install bindgen via cargo (no full rustc needed)
         set -euo pipefail
@@ -686,12 +684,12 @@ runs:
       if: ${{ inputs.clean == false || inputs.clean == 'false' }}
       with:
         cache_path: ${{ env.CCACHE_DIR }}
-        cache_key: ${{ inputs.ksu_type }}-v3-${{ env.OP_MODEL }}-${{ env.OP_OS_VERSION }}-${{ env.KERNEL_FULL_VER }}-${{ env.CLANG_VERSION_SHORT }}
+        cache_key: ${{ inputs.ksu_type }}-${{ env.OP_MINIMAL == 'true' && 'sm8845-min-v1' || 'v3' }}-${{ env.OP_MODEL }}-${{ env.OP_OS_VERSION }}-${{ env.KERNEL_FULL_VER }}-${{ env.CLANG_VERSION_SHORT }}
         cache_bucket: "ccache-cache"
         debug: ${{ inputs.debug }}
         restore_keys: |
-          ${{ inputs.ksu_type }}-v3-${{ env.OP_MODEL }}-${{ env.OP_OS_VERSION }}-${{ env.KERNEL_FULL_VER }}-
-          ${{ inputs.ksu_type }}-v3-${{ env.OP_MODEL }}-${{ env.OP_OS_VERSION }}-
+          ${{ inputs.ksu_type }}-${{ env.OP_MINIMAL == 'true' && 'sm8845-min-v1' || 'v3' }}-${{ env.OP_MODEL }}-${{ env.OP_OS_VERSION }}-${{ env.KERNEL_FULL_VER }}-
+          ${{ inputs.ksu_type }}-${{ env.OP_MINIMAL == 'true' && 'sm8845-min-v1' || 'v3' }}-${{ env.OP_MODEL }}-${{ env.OP_OS_VERSION }}-
 
     - name: Check and Prepare Caches
       shell: bash
@@ -867,7 +865,9 @@ runs:
           return 1
         }
         
-        retry_clone "https://github.com/WildKernels/kernel_patches.git" "main" "1"
+        if [ "${OP_MINIMAL:-false}" != true ]; then
+          retry_clone "https://github.com/WildKernels/kernel_patches.git" "main" "1"
+        fi
         
         if [ "${{ env.OP_SUSFS }}" = true ]; then
           echo "Using SUSFS branch/commit: $SUSFS_BRANCH"
@@ -899,7 +899,9 @@ runs:
         cd "$KERNEL_PLATFORM_FOLDER"
         echo "Adding KernelSU Next..."
         KSU_INPUT="${{ inputs.ksu_branch_or_hash }}"
-        if [ -z "$KSU_INPUT" ]; then
+        if [ "${OP_MINIMAL:-false}" = true ]; then
+          bash "$GITHUB_WORKSPACE/action-source/.github/scripts/sm8845.sh" install-ksu
+        elif [ -z "$KSU_INPUT" ]; then
           curl --fail --location --proto '=https' -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -
         else
           curl --fail --location --proto '=https' -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s "$KSU_INPUT"
@@ -922,7 +924,7 @@ runs:
           sed -i 's/#if defined(CONFIG_STACKPROTECTOR) && (defined(CONFIG_ARM64) && !defined(CONFIG_STACKPROTECTOR_PER_TASK))/#if 0/' ksu.c
         fi
         
-        if [[ "$KSU_VERSION" -gt 33095 ]] && [[ "${{ env.KERNEL_VER }}" == "6.12" ]]; then
+        if [[ "${OP_MINIMAL:-false}" != true && "$KSU_VERSION" -gt 33095 ]] && [[ "${{ env.KERNEL_VER }}" == "6.12" ]]; then
           sed -i 's|ccflags-y += -I$(KSU_KERNEL_DIR) -I$(KSU_KERNEL_DIR)/include|ccflags-y += -I$(KSU_KERNEL_DIR) -I$(KSU_KERNEL_DIR)/include -I$(KSU_KERNEL_DIR)/include/uapi|' Kbuild
           sed -i 's|$(src)|$(abspath $(src))|' Kbuild
           sed -i 's|$(srctree)/$(src)|$(abspath $(srctree)/$(src))|' Kbuild
@@ -1000,9 +1002,14 @@ runs:
         echo "✅ KernelSU added (commit: ${KSU_COMMIT_SHA:0:8})"
         echo "::endgroup::"
 
+    - name: Apply checked SM8845 SUSFS integration
+      shell: bash
+      if: ${{ env.OP_MINIMAL == 'true' }}
+      run: bash "$GITHUB_WORKSPACE/action-source/.github/scripts/sm8845.sh" apply-susfs
+
     - name: Apply SUSFS Patches
       shell: bash
-      if: ${{ env.OP_SUSFS == 'true' }}
+      if: ${{ env.OP_SUSFS == 'true' && env.OP_MINIMAL != 'true' }}
       run: |
         set -euo pipefail
         echo "::group::Apply SUSFS patches"
@@ -1309,6 +1316,7 @@ runs:
         echo "::endgroup::"
 
     - name: Apply Other Patches
+      if: ${{ env.OP_MINIMAL != 'true' }}
       shell: bash
       run: |
         set -euo pipefail
@@ -1575,6 +1583,7 @@ runs:
         fi
 
     - name: Add Tmpfs Support
+      if: ${{ env.OP_MINIMAL != 'true' }}
       shell: bash
       run: |
         set -euo pipefail
@@ -1619,6 +1628,7 @@ runs:
         echo "::endgroup::"
 
     - name: Enable Important Net Schedulers (qdisc)
+      if: ${{ env.OP_MINIMAL != 'true' }}
       shell: bash
       run: |
         set -euo pipefail
@@ -1740,6 +1750,7 @@ runs:
         echo "::endgroup::"
 
     - name: Add Build based configs
+      if: ${{ env.OP_MINIMAL != 'true' }}
       shell: bash
       run: |
         set -euo pipefail
@@ -1754,7 +1765,7 @@ runs:
 
     - name: Add RUST build configs
       shell: bash
-      if: ${{ env.OP_RUST_BUILD == 'true' }}
+      if: ${{ env.OP_RUST_BUILD == 'true' && env.OP_MINIMAL != 'true' }}
       run: |
         set -euo pipefail
         echo "Add Build based configs"
@@ -1797,6 +1808,7 @@ runs:
         sed -i '/obj-y.*gpueb/d' "$COMMON_KERNEL_FOLDER/drivers/gpu/mediatek/Makefile"
 
     - name: Apply Fake config.gz patch
+      if: ${{ env.OP_MINIMAL != 'true' }}
       shell: bash
       run: |
         set -euo pipefail
@@ -1818,6 +1830,7 @@ runs:
         echo "CONFIG_FAKE_DISABLE=${CONFIG_STRING}" >> $GITHUB_ENV
     
     - name: Disable Vendor / Kernel Modules
+      if: ${{ env.OP_MINIMAL != 'true' }}
       shell: bash
       run: |
         set -euo pipefail
@@ -1886,6 +1899,7 @@ runs:
       shell: bash
       env:
         PYTHONWARNINGS: "ignore:invalid escape sequence"
+        BUILD_TIMESTAMP_INPUT: ${{ inputs.build_timestamp }}
       run: |
         set -euo pipefail
         echo "::group::Build kernel with ccache optimization"
@@ -1900,6 +1914,9 @@ runs:
         COMMIT_DATE=$(git log -1 --format=%cd --date=format:'%Y-%m-%d %H:%M:%S' 2>/dev/null || date -u '+%Y-%m-%d %H:%M:%S')
         COMMIT_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
         
+        if [ "${OP_MINIMAL:-false}" = true ]; then
+          COMMIT_TIMESTAMP=$(jq -er --arg model "$OP_MODEL" '.devices[$model].source_date_epoch' "$GITHUB_WORKSPACE/action-source/.github/sm8845-lock.json")
+        fi
         WORKSPACE="${GITHUB_WORKSPACE}"
         MAP="-fdebug-prefix-map=${WORKSPACE}=."
         MPMAP="-fmacro-prefix-map=${WORKSPACE}=."
@@ -1925,8 +1942,8 @@ runs:
         
         KERNEL_BUILD_DATE=$(date -u)
         export SOURCE_DATE_EPOCH=$COMMIT_TIMESTAMP
-        if [ -n "${{ inputs.build_timestamp }}" ]; then
-          export KBUILD_BUILD_TIMESTAMP="${{ inputs.build_timestamp }}"
+        if [ -n "$BUILD_TIMESTAMP_INPUT" ]; then
+          export KBUILD_BUILD_TIMESTAMP="$BUILD_TIMESTAMP_INPUT"
           echo "📅 Using custom build timestamp: $KBUILD_BUILD_TIMESTAMP"
         else
           export KBUILD_BUILD_TIMESTAMP="$KERNEL_BUILD_DATE"
@@ -1949,6 +1966,7 @@ runs:
           echo "🚀 ccache-accelerated build"
         else
           echo "🧹 Clean build mode"
+          export CCACHE_DISABLE=1
         fi
         
         OUT=out
@@ -1993,13 +2011,18 @@ runs:
         
         case "$OP_BRANCH" in
           wild/sm8750|wild/sm8850|wild/sm8845)
-            KCFLAGS_EXTRA="-mcpu=oryon-1 ${KCFLAGS_EXTRA}"
+            if [ "${OP_MINIMAL:-false}" != true ]; then
+              KCFLAGS_EXTRA="-mcpu=oryon-1 ${KCFLAGS_EXTRA}"
+            fi
             ;;
         esac
         
-        scripts/config --file "$OUT/.config" -e LTO_CLANG -d LTO_CLANG_NONE -d LTO_CLANG_THIN -d LTO_CLANG_FULL
+        if [ "$OP_LTO" != stock ]; then
+          scripts/config --file "$OUT/.config" -e LTO_CLANG -d LTO_CLANG_NONE -d LTO_CLANG_THIN -d LTO_CLANG_FULL
+        fi
         
         case "${{ env.OP_LTO}}" in
+          "stock") ;;
           "none") scripts/config --file "$OUT/.config" -e LTO_CLANG_NONE ;;
           "thin") scripts/config --file "$OUT/.config" -e LTO_CLANG_THIN ;;
           "full") scripts/config --file "$OUT/.config" -e LTO_CLANG_FULL ;;
@@ -2012,8 +2035,15 @@ runs:
         
         make LD="$COMMON_KERNEL_FOLDER/ld-wrapper" HOSTLD="$COMMON_KERNEL_FOLDER/ld-wrapper" O="$OUT" olddefconfig
         
+        if [ "${OP_MINIMAL:-false}" = true ]; then
+          for symbol in KSU KSU_SUSFS MODVERSIONS; do
+            grep -qx "CONFIG_${symbol}=y" "$OUT/.config" || { echo "::error::Required CONFIG_${symbol}=y missing after olddefconfig"; exit 1; }
+          done
+        fi
         KCFLAGS="$KCFLAGS -Wno-error -pipe ${KCFLAGS_EXTRA}"
-        KCPPFLAGS="$KCPPFLAGS -DCONFIG_OPTIMIZE_INLINING"
+        if [ "${OP_MINIMAL:-false}" != true ]; then
+          KCPPFLAGS="$KCPPFLAGS -DCONFIG_OPTIMIZE_INLINING"
+        fi
         
         echo "============================================"
         echo "🔧 Build Configuration"
@@ -2245,8 +2275,8 @@ runs:
         
         sed -i 's/do.check_boot_version=.*/do.check_boot_version=1/' anykernel.sh
         
-        case "$OP_BRANCH" in
-          wild/sm8850|wild/sm8845)
+        case "$OP_BRANCH:$OP_BBG" in
+          wild/sm8850:true|wild/sm8845:true)
             echo "Applying BBG efisp abl whitelist control patch"
             patch -p1 < "$KERNEL_PATCHES_FOLDER/common/bbg/0001-Enable-volume-input-to-enable-bbg-efisp-patch.patch"
           ;;
@@ -2258,8 +2288,12 @@ runs:
         else
           ZIP_NAME="AK3_${ZIP_MODEL}_${OP_OS_VERSION}_${KERNEL_FULL_VER}_${{ inputs.ksu_type }}_${KSUVER:-unknown}.zip"
         fi
+        if [ "${OP_MINIMAL:-false}" = true ]; then
+          bash "$GITHUB_WORKSPACE/action-source/.github/scripts/sm8845.sh" package-metadata
+          ZIP_NAME="${ZIP_NAME%.zip}_K${KSU_COMMIT_SHA:0:8}_S${SUSFS_COMMIT_SHA:0:8}_B${GITHUB_SHA:0:12}.zip"
+        fi
         mkdir -p "$ARTIFACTS_FOLDER"
-        
+
         echo "Creating flashable ZIP: $ZIP_NAME"
         
         if ! zip -r9 "$ZIP_NAME" ./* \
@@ -2270,6 +2304,7 @@ runs:
           exit 1
         fi
         
+        unzip -t "$ZIP_NAME"
         mv "$ZIP_NAME" "$ARTIFACTS_FOLDER/"
         
         find "$ARTIFACTS_FOLDER" -maxdepth 1 -type f ! -name "$ZIP_NAME" -delete
@@ -2422,7 +2457,7 @@ runs:
 
     - name: Upload Debug Artifacts
       if: ${{ always() && !cancelled() && inputs.debug == 'true' }}
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
       with:
         name: ${{ env.DEBUG_ZIP_NAME }}
         path: ${{ env.DEBUG_ARTIFACTS_FOLDER }}
@@ -2431,7 +2466,7 @@ runs:
 
     - name: Upload Artifacts
       if: success() && steps.create_zip.conclusion == 'success'
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
       with:
         name: ${{ env.ZIP_NAME }}
         path: ${{ env.ARTIFACTS_FOLDER }}/${{ env.ZIP_NAME }}
@@ -2441,7 +2476,7 @@ runs:
 
     - name: Upload ccache log
       if: success() && inputs.debug == 'true' && steps.build_kernel_step.conclusion == 'success'
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
       with:
         name: "${{ env.OP_MODEL }}_${{ env.OP_OS_VERSION }}_${{ env.KERNEL_FULL_VER }}_ccache.log"
         path: ${{ env.CCACHE_LOGFILE }}
@@ -2450,18 +2485,18 @@ runs:
         retention-days: 90
 
     - name: 📥 Checkout Code
-      uses: actions/checkout@v6
+      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
       if: always() && steps.build_kernel_step.conclusion == 'success'
       with:
         path: main-source
         fetch-depth: 1
 
     - name: Save ccache cache
-      if: always() && steps.build_kernel_step.conclusion == 'success'
+      if: always() && steps.build_kernel_step.conclusion == 'success' && inputs.clean != 'true'
       uses: ./action-source/.github/actions/cache/save
       with:
         cache_path: ${{ env.CCACHE_DIR }}
-        cache_key: ${{ inputs.ksu_type }}-v3-${{ env.OP_MODEL }}-${{ env.OP_OS_VERSION }}-${{ env.KERNEL_FULL_VER }}-${{ env.CLANG_VERSION_SHORT }}
+        cache_key: ${{ inputs.ksu_type }}-${{ env.OP_MINIMAL == 'true' && 'sm8845-min-v1' || 'v3' }}-${{ env.OP_MODEL }}-${{ env.OP_OS_VERSION }}-${{ env.KERNEL_FULL_VER }}-${{ env.CLANG_VERSION_SHORT }}
         cache_bucket: "ccache-cache"
         debug: ${{ inputs.debug }}
         github_token: ${{ inputs.github_token }}

@@ -1,18 +1,17 @@
 name: 'Download and configure Kernel Source code'
+description: 'Download and configure Kernel Source code'
 
 inputs:
   source_location:
     description: 'Folder path to save Kernel source'
     required: true
-    type: string
   github_token:
     description: 'GitHub Token'
     required: true
   debug:
     description: 'Enable Logs'
     required: false
-    type: boolean
-    default: false
+    default: 'false'
 
 runs:
   using: 'composite'
@@ -45,7 +44,6 @@ runs:
         import time
         import glob
         from concurrent.futures import ThreadPoolExecutor
-        import requests
         
         MAX_WORKERS = (os.cpu_count() or 2) * 4
         NPROC = int(subprocess.check_output("nproc", shell=True).strip())
@@ -140,10 +138,12 @@ runs:
                                 found_in_cache = True
                             
                         if not found_in_cache:
-                            print(f"::error::[FATAL ERROR] Toolchain {base_filename} NOT FOUND in GitHub Release cache!")
-                            print(f"::error::[FATAL ERROR] Please Run Mirror Toolchain Workflow or select sync toolchain during build!!!")
-                            return False
-                    
+                            print(f"Toolchain {base_filename} not found in GitHub Release cache")
+                            print("Use manifest origin for SM8845; other profiles require the mirror workflow.")
+                            if os.environ.get("OP_MINIMAL") != "true":
+                                return False
+                            print("  [DIRECT] SM8845: fetching pinned project from manifest origin")
+
                     if found_in_cache:
                         parts = sorted(glob.glob(os.path.join(shm_workspace, f"*.part*")))
                         source = f"cat {' '.join(parts)} | " if parts else f"cat {os.path.join(shm_workspace, base_filename)} | "
@@ -168,7 +168,7 @@ runs:
                     if attempt < MAX_ATTEMPTS:
                         time.sleep(5)
                 except Exception as e:
-                    print(f"  [RETRY {attempt}/{MAX_ATTEMPTS}] {name} failed with exit code {e.returncode}. Command: {e.cmd}")
+                    print(f"  [RETRY {attempt}/{MAX_ATTEMPTS}] {name} failed: {e}")
                     print(f"  [ERROR] Failed to sync {name}")
                     if attempt < MAX_ATTEMPTS:
                         time.sleep(5)

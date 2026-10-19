@@ -1,0 +1,35 @@
+{
+  "ksu": {
+    "repository": "https://github.com/KernelSU-Next/KernelSU-Next",
+    "commit": "234f6e040fcbca18b16d2398e1aa225712ec99ad",
+    "version": 33239
+  },
+  "susfs": {
+    "repository": "https://gitlab.com/simonpunk/susfs4ksu",
+    "commit": "f37930f374ef88de990d6abea0c67d0ea28c1edc",
+    "version": "v2.2.0",
+    "kernel_patch_sha256": "8bae7bf9f7919db9e7a19a279625f95221c11b623b873a0479358632296c49f0"
+  },
+  "compatibility_patches": {
+    "repository": "https://github.com/WildKernels/kernel_patches",
+    "commit": "fa76c90e2cb284e6ce22b0b008ad4dd19820dbb1",
+    "adapted_patch_sha256": "aa24498de5ebace7f580871e122374fe0d9ca58b3c3b5e83743e72d7a8e7dd23"
+  },
+  "kernel_family": "android16-6.12",
+  "kernel_version": "6.12.38",
+  "kmi_generation": 5,
+  "devices": {
+    "OP-ACE-6T": {
+      "manifest": "oneplus_ace_6t_w.xml",
+      "common_commit": "c1102892bf2eb5806e135f5169b3dcfd72f96c47",
+      "modules_commit": "6265826aa0a52ea9a3bb60a84c3164dd61e282c7",
+      "source_date_epoch": 1789459756
+    },
+    "OP15r": {
+      "manifest": "oneplus_15r_w.xml",
+      "common_commit": "2eeabf09aa84e35236fdb82aba9b59b18b04ff9c",
+      "modules_commit": "881e8b4639272d7b7655b111d58f8a707061c548",
+      "source_date_epoch": 1774841996
+    }
+  }
+}

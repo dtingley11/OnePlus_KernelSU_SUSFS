@@ -1,18 +1,16 @@
 name: 'Restore Cache'
+description: 'Restore Cache'
 
 inputs:
   cache_path:
     description: 'Path where cache should be restored'
     required: true
-    type: string
   cache_key:
     description: 'Primary key to restore cache'
     required: true
-    type: string
   restore_keys:
     description: 'Multiline list of keys (fallback prefixes)'
     required: false
-    type: string
     default: ""
   cache_bucket:
     description: 'The tag name for the release (e.g., general-cache)'
@@ -21,8 +19,7 @@ inputs:
   debug:
     description: 'Enable Logs'
     required: false
-    type: boolean
-    default: false
+    default: 'false'
 
 runs:
   using: 'composite'
