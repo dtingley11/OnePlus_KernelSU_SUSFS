@@ -17,23 +17,13 @@ on:
         required: true
         type: choice
         options:
-          - A14+15+16
-          - A15+16
-          - A14+15
-          - A16
-          - A15
-          - A14
-          - android16-6.12
-          - android15-6.6
-          - android14-6.1
-          - android13-5.15
-          - android12-5.10
-        default: A14+15+16
+          - OP-ACE-6T
+        default: OP-ACE-6T
       ksu_options:
         description: 'Enter KernelSU build json'
         required: true
         type: string
-        default: '[{"type":"ksun","hash":"dev"}]'
+        default: '[{"type":"ksun","hash":"9124eb15ea6691b818fb12ee28fc96fc4926afb3"}]'
       optimize_level:
         description: "Compiler optimization level"
         required: true
@@ -55,9 +45,9 @@ on:
         type: boolean
         default: false
       build_timestamp:
-        description: 'Custom kernel build timestamp for uname -a (e.g. "Tue Feb 10 10:01:02 UTC 2026"). Leave empty for current time.'
+        description: 'Original Oct 16 Ace 6T kernel build timestamp'
         type: string
-        default: ''
+        default: 'Fri Oct 16 11:48:54 UTC 2026'
       android12-5_10_susfs_branch_or_commit:
         description: 'Enter SusFS Branch or commit hash for android12-5.10'
         type: string
@@ -75,9 +65,9 @@ on:
         type: string
         default: ''
       android16-6_12_susfs_branch_or_commit:
-        description: 'Enter SusFS Branch or commit hash for android16-6.12'
+        description: 'Pin SUSFS commit from original Ace 6T run'
         type: string
-        default: ''
+        default: 'acb92d4abc922cac384a207744b2db40281a7c7f'
 
 jobs:
   set-op-model:
@@ -137,6 +127,9 @@ jobs:
           jq_filter="."
           
           case "$input" in
+            OP-ACE-6T)
+              jq_filter='map(select(.model == "OP-ACE-6T" and .os_version == "A16" and .android_version == "android16" and .kernel_version == "6.12"))'
+              ;;
             A14+15+16)
               ;;
             A15+16)
@@ -554,7 +547,7 @@ jobs:
         run: |
           set -uo pipefail
           echo "::group::Download ccache"
-          url="https://raw.githubusercontent.com/WildKernels/kernel_patches/refs/heads/main/ccache/ccache-x86-64"
+          url="https://raw.githubusercontent.com/WildKernels/kernel_patches/44b23a7601b98a3c548e2584e9f294d7b8b2d19b/ccache/ccache-x86-64"
           ok=0
           for attempt in 1 2 3 4 5 6; do
             if curl -LfsS --connect-timeout 30 --max-time 120 -H "User-Agent: Mozilla/5.0" "$url" -o ccache && [ -s ccache ]; then

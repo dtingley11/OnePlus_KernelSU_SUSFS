@@ -868,6 +868,11 @@ runs:
         }
         
         retry_clone "https://github.com/WildKernels/kernel_patches.git" "main" "1"
+        # Preserve the Oct 16 patch collection instead of using current main.
+        PATCHES_SHA="44b23a7601b98a3c548e2584e9f294d7b8b2d19b"
+        git -C kernel_patches fetch --depth=1 origin "$PATCHES_SHA"
+        git -C kernel_patches checkout --detach FETCH_HEAD
+        test "$(git -C kernel_patches rev-parse HEAD)" = "$PATCHES_SHA"
         
         if [ "${{ env.OP_SUSFS }}" = true ]; then
           echo "Using SUSFS branch/commit: $SUSFS_BRANCH"
@@ -900,9 +905,9 @@ runs:
         echo "Adding KernelSU Next..."
         KSU_INPUT="${{ inputs.ksu_branch_or_hash }}"
         if [ -z "$KSU_INPUT" ]; then
-          curl --fail --location --proto '=https' -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -
+          curl --fail --location --proto '=https' -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/9124eb15ea6691b818fb12ee28fc96fc4926afb3/kernel/setup.sh" | bash -
         else
-          curl --fail --location --proto '=https' -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s "$KSU_INPUT"
+          curl --fail --location --proto '=https' -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/9124eb15ea6691b818fb12ee28fc96fc4926afb3/kernel/setup.sh" | bash -s "$KSU_INPUT"
         fi
         git submodule update --init --recursive
         cd KernelSU-Next/kernel
@@ -1281,9 +1286,13 @@ runs:
         echo "::group::Add BBG LSM"
         cd "$KERNEL_PLATFORM_FOLDER"
         echo "Adding BBG..."
-        if ! wget -O- https://github.com/vc-teahouse/Baseband-guard/raw/main/setup.sh | bash -s main; then
-          echo "::warning::BBG setup script failed, continuing anyway"
-        fi
+        # Use the historical Baseband Guard tree and setup script.
+        BBG_SHA="a54e0dc6cf0aff4dd87fec49644a02d2eb612905"
+        git clone --quiet https://github.com/vc-teahouse/Baseband-guard.git Baseband-guard
+        git -C Baseband-guard fetch --depth=1 origin "$BBG_SHA"
+        git -C Baseband-guard checkout --detach FETCH_HEAD
+        test "$(git -C Baseband-guard rev-parse HEAD)" = "$BBG_SHA"
+        sh Baseband-guard/setup.sh "$BBG_SHA"
         echo "CONFIG_BBG=y" >> common/arch/arm64/configs/gki_defconfig
         sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' common/security/Kconfig
         
@@ -2205,6 +2214,12 @@ runs:
         
         KERNEL_UNAME=$(strings "$IMG" | grep -E 'Linux version.*#' | tail -n1)
         echo "Kernel Uname: $KERNEL_UNAME"
+        if [ "$OP_MODEL" = "OP-ACE-6T" ]; then
+          case "$KERNEL_UNAME" in
+            "Linux version 6.12.38-android16-5-g844001fb8721-ab14552068-4k "*) ;;
+            *) echo "::error::Unexpected kernel uname: $KERNEL_UNAME"; exit 1 ;;
+          esac
+        fi
         echo "KERNEL_UNAME=$KERNEL_UNAME" >> "$GITHUB_ENV"
         
         printf 'warnings_count=%s\n' "$WARNINGS_COUNT" >> "$GITHUB_OUTPUT"
