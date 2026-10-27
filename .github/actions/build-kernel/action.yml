@@ -2217,7 +2217,11 @@ runs:
         if [ "$OP_MODEL" = "OP-ACE-6T" ]; then
           case "$KERNEL_UNAME" in
             "Linux version 6.12.38-android16-5-g844001fb8721-ab14552068-4k "*) ;;
-            *) echo "::error::Unexpected kernel uname: $KERNEL_UNAME"; exit 1 ;;
+            *) echo "::error::Unexpected kernel release: $KERNEL_UNAME"; exit 1 ;;
+          esac
+          case "$KERNEL_UNAME" in
+            *"#1 SMP PREEMPT Fri Dec  5 02:15:49 UTC 2025"*) ;;
+            *) echo "::error::Unexpected kernel build version (uname -v): $KERNEL_UNAME"; exit 1 ;;
           esac
         fi
         echo "KERNEL_UNAME=$KERNEL_UNAME" >> "$GITHUB_ENV"
