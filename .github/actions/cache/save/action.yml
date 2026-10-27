@@ -65,19 +65,23 @@ runs:
         
         echo "::group:: Checking Release State"
         
-        git fetch --tags --force
-        
-        if ! git rev-parse "$TAG_NAME" >/dev/null 2>&1; then
-          echo "Tag '$TAG_NAME' not found. Creating backdated release..."
-          GIT_COMMITTER_DATE="2015-01-01T12:00:00" git tag -a "$TAG_NAME" -m "General Cache Storage"
-          if git push origin "$TAG_NAME" --force; then
-            gh release create "$TAG_NAME" --title "General Cache" --notes "Automated storage for build assets" --repo "$TARGET_REPO" || true
-          else
-            echo "Push failed, tag might have been created by a parallel job. Continuing..."
+        # Check the release in the destination repository, not a potentially
+        # unrelated local/upstream tag. gh can create the tag if it is missing.
+        if ! gh release view "$TAG_NAME" --repo "$TARGET_REPO" >/dev/null 2>&1; then
+          echo "Release '$TAG_NAME' missing in $TARGET_REPO; creating it."
+          if ! gh release create "$TAG_NAME" \
+            --title "General Cache" \
+            --notes "Automated storage for build assets" \
+            --target "$GITHUB_SHA" \
+            --repo "$TARGET_REPO"; then
+            # Another job may have raced to create the release.
+            if ! gh release view "$TAG_NAME" --repo "$TARGET_REPO" >/dev/null 2>&1; then
+              echo "::error::Unable to create cache release '$TAG_NAME' in $TARGET_REPO"
+              exit 1
+            fi
           fi
-        else
-          echo "Release '$TAG_NAME' already exists. Ready for upload."
         fi
+        echo "Release '$TAG_NAME' exists in $TARGET_REPO. Ready for upload."
         echo "::endgroup::"
         
         echo "::group:: Archiving Path"
@@ -140,7 +144,7 @@ runs:
                   return 0
                 fi
               else
-                if timeout 10m gh release upload "$TAG_NAME" "$file" --clobber --repo "$TARGET_REPO" > /dev/null 2>&1; then
+                if timeout 10m gh release upload "$TAG_NAME" "$file" --clobber --repo "$TARGET_REPO"; then
                   echo "  Successfully uploaded $file"
                   return 0
                 fi
