@@ -2478,9 +2478,8 @@ runs:
     - name: Save ccache cache (optional)
       if: always() && steps.build_kernel_step.conclusion == 'success'
       continue-on-error: true
-      uses: ./.github/actions/cache/save
+      uses: ./action-source/.github/actions/cache/save
       with:
-        github_token: ${{ inputs.github_token }}
         cache_path: ${{ env.CCACHE_DIR }}
         cache_key: ${{ inputs.ksu_type }}-v3-${{ env.OP_MODEL }}-${{ env.OP_OS_VERSION }}-${{ env.KERNEL_FULL_VER }}-${{ env.CLANG_VERSION_SHORT }}
         cache_bucket: "ccache-cache"
