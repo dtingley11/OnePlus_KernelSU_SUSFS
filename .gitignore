@@ -5,3 +5,5 @@
 *.Identifier
 *.orig
 *.rej
+
+.work/

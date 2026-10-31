@@ -138,6 +138,7 @@ runs:
         lto="$OP_LTO"
         uname="$OP_UNAME"
         unicode="$OP_UNICODE"
+        cass="${OP_CASS:-false}"
         c_compiler="$OP_C_COMPILER"
         rust_compiler="$OP_RUST_COMPILER"
         zyc_compiler="$OP_ZYC_COMPILER"
@@ -297,6 +298,10 @@ runs:
           errors+=("Input 'ntsync' contains invalid characters. Allowed: 'true' or 'false'. Got: '$ntsync'")
         fi
         
+        if [[ "$cass" != "true" && "$cass" != "false" ]]; then
+          errors+=("Input 'cass' contains invalid characters. Allowed: 'true' or 'false'. Got: '$cass'")
+        fi
+
         case "$optimize" in
           O2|O3) ;;
           *) errors+=("optimize_level must be O2 or O3. Got: '$optimize'"); ;;
@@ -1890,6 +1895,59 @@ runs:
           patch -p1 < "$KERNEL_PATCHES_FOLDER/common/vendor_modules/0001-Support-conditional-vendor-modules-blacklisting-6.1-and-above.patch"
         fi
         
+    - name: Apply CASS Patches
+      if: ${{ env.OP_CASS == 'true' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        echo "::group::Apply CASS patches"
+        cd "$COMMON_KERNEL_FOLDER"
+
+        CASS_PATCH_DIR="$GITHUB_WORKSPACE/patches/cass/${OP_ANDROID_VERSION}-${OP_KERNEL_VERSION}"
+        if [ ! -d "$CASS_PATCH_DIR" ]; then
+          echo "::error::CASS patch directory not found: $CASS_PATCH_DIR"
+          exit 1
+        fi
+
+        applied=0
+        for cass_patch in "$CASS_PATCH_DIR"/0*.patch; do
+          if [ ! -f "$cass_patch" ]; then
+            continue
+          fi
+          echo "Applying $(basename "$cass_patch")"
+          # --forward skips a patch that is already applied, but still exits non-zero
+          # and writes a .rej file, so any real failure aborts the build here.
+          if ! patch -p1 --forward < "$cass_patch"; then
+            echo "::error::CASS patch $(basename "$cass_patch") failed to apply against ${OP_ANDROID_VERSION}-${OP_KERNEL_VERSION}"
+            exit 1
+          fi
+          applied=$((applied + 1))
+        done
+
+        if [ "$applied" -eq 0 ]; then
+          echo "::error::No CASS patches found in $CASS_PATCH_DIR"
+          exit 1
+        fi
+
+        for file in "arch/arm64/include/asm/topology.h:arch_scale_min_freq_capacity" \
+                    "include/linux/arch_topology.h:topology_get_min_freq_scale" \
+                    "drivers/base/arch_topology.c:topology_set_min_freq_scale" \
+                    "drivers/cpufreq/cpufreq.c:arch_set_min_freq_scale" \
+                    "kernel/sched/cass.c:cass_best_cpu" \
+                    "kernel/sched/rt.c:cass_rt.h" \
+                    "init/Kconfig:config SCHED_CASS"; do
+          target="${file%%:*}"
+          marker="${file#*:}"
+          if [ ! -f "$target" ] || ! grep -q "$marker" "$target"; then
+            echo "::error::CASS marker '$marker' missing from $target after applying patches"
+            exit 1
+          fi
+        done
+
+        echo "CONFIG_SCHED_CASS=y" >> "$COMMON_KERNEL_FOLDER/arch/arm64/configs/gki_defconfig"
+        echo "✅ $applied CASS patch(es) applied, CONFIG_SCHED_CASS=y added to gki_defconfig"
+        echo "::endgroup::"
+
     - name: Build Kernel
       id: build_kernel_step
       shell: bash
@@ -2098,6 +2156,51 @@ runs:
         echo "============================================"
         ccache -s
         echo "============================================"
+        echo "::endgroup::"
+
+    - name: Verify CASS in Final Config
+      id: verify_cass
+      if: ${{ env.OP_CASS == 'true' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        echo "::group::Verify CASS config"
+        FINAL_CONFIG="$COMMON_KERNEL_FOLDER/out/.config"
+        if [ ! -f "$FINAL_CONFIG" ]; then
+          echo "::error::Generated kernel config not found: $FINAL_CONFIG"
+          exit 1
+        fi
+
+        if ! grep -q '^CONFIG_SCHED_CASS=y$' "$FINAL_CONFIG"; then
+          echo "::error::CONFIG_SCHED_CASS=y is missing from the generated config"
+          grep -n 'SCHED_CASS' "$FINAL_CONFIG" || true
+          exit 1
+        fi
+        echo "✅ CONFIG_SCHED_CASS=y present in $FINAL_CONFIG"
+
+        if ! grep -q '^CONFIG_UCLAMP_TASK=y$' "$FINAL_CONFIG"; then
+          echo "::warning::CONFIG_UCLAMP_TASK is not enabled; CASS uclamp logic is less effective"
+        fi
+
+        # cass.c is #included into fair.c, so there is no separate cass.o object.
+        # Confirm the scheduler actually picked CASS up by looking for its symbols.
+        cass_found=false
+        for map in "$COMMON_KERNEL_FOLDER/out/System.map" \
+                   "$KERNEL_PLATFORM_FOLDER/out/$OP_ANDROID_VERSION-$OP_KERNEL_VERSION/dist/System.map"; do
+          if [ -f "$map" ] && grep -q "cass_select_task_rq_rt" "$map"; then
+            echo "✅ CASS symbols present in $map"
+            cass_found=true
+            break
+          fi
+        done
+
+        if [ "$cass_found" = false ]; then
+          echo "::warning::CASS symbols not found in System.map; falling back to a source check"
+          if ! grep -q '#include "cass.c"' "$COMMON_KERNEL_FOLDER/kernel/sched/fair.c"; then
+            echo "::error::CASS is enabled but kernel/sched/fair.c does not include cass.c"
+            exit 1
+          fi
+        fi
         echo "::endgroup::"
 
     - name: 📊 ccache Post-Build Statistics
@@ -2341,6 +2444,7 @@ runs:
           echo ""
           echo "=== OnePlus Features ==="
           echo "Kernel Optimisations: ${{ env.OP_OPT }}"
+          echo "CASS Scheduler: ${{ env.OP_CASS }}"
           echo "BBR: ${{ env.OP_BBR }}"
           echo "BBRv3: ${{ env.OP_BBR3 }}"
           echo "BBG: ${{ env.OP_BBG }}"
