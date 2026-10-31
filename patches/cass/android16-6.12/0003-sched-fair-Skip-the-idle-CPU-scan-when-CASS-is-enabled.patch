@@ -1,0 +1,22 @@
+Subject: [PATCH 3/3] sched/fair: Skip the idle CPU scan when CASS is enabled
+Original author: Sultan Alsawaf <sultan@kerneltoast.com>
+
+update_idle_cpu_scan() only updates the nr_idle_scan hint that
+select_idle_cpu() reads. CASS never calls select_idle_sibling(), so the
+scan is dead work once select_task_rq_fair() is replaced.
+---
+diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
+index cc753b7ab..a3acc362e 100644
+--- a/kernel/sched/fair.c
++++ b/kernel/sched/fair.c
+@@ -11238,6 +11238,10 @@ static void update_idle_cpu_scan(struct lb_env *env,
+ 	struct sched_domain_shared *sd_share;
+ 	int llc_weight, pct;
+ 	u64 x, y, tmp;
++
++	/* CASS doesn't use this, so this can be skipped as an optimization */
++	if (IS_ENABLED(CONFIG_SCHED_CASS))
++		return;
+ 	/*
+ 	 * Update the number of CPUs to scan in LLC domain, which could
+ 	 * be used as a hint in select_idle_cpu(). The update of sd_share
